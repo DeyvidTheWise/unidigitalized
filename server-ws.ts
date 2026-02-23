@@ -1,4 +1,5 @@
 import "dotenv/config";
+import type { IncomingMessage } from "node:http";
 import { WebSocketServer } from "ws";
 import type { RawData, WebSocket } from "ws";
 import type { Prisma } from "@prisma/client";
@@ -21,7 +22,7 @@ function safeIp(headers: Record<string, string | string[] | undefined>): string 
 
 const wss = new WebSocketServer({ port: WS_PORT });
 
-wss.on("connection", (socket: WebSocket, request) => {
+wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
   const auth = authenticateUpgradeRequest(request);
   if (!auth.ok) {
     socket.close(auth.closeCode, auth.reason);

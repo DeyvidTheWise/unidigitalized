@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "../src/lib/prisma";
 import { computeDeviceFingerprint } from "../src/lib/auth/device";
+import { hashPassword } from "../src/lib/auth/password";
 import { loginUser } from "../src/lib/auth/service";
 import { POST as createSessionRoute } from "../app/api/sessions/route";
 import { GET as getSessionRoute } from "../app/api/sessions/[id]/route";
@@ -74,28 +75,41 @@ async function expectError(response: Response, status: number, code: string) {
   assert(data?.error?.code === code, `Expected error code ${code}, got ${data?.error?.code}`);
 }
 
+async function createTempUser(role: "TUTOR" | "STUDENT") {
+  const email = `phase3-${role.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 10_000)}@test.local`;
+  const password = "Password123!";
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash: await hashPassword(password),
+      role,
+    },
+    select: { id: true, email: true },
+  });
+  return { ...user, password };
+}
+
 async function main() {
+  const tutorUser = await createTempUser("TUTOR");
+  const studentUser = await createTempUser("STUDENT");
+  const extraUser = await createTempUser("STUDENT");
+
   const tutorDeviceId = `phase3-tutor-${Date.now()}`;
   const studentDeviceId = `phase3-student-${Date.now()}`;
 
   const tutorLogin = await loginAs(
-    "tutor@test.local",
-    "Password123!",
+    tutorUser.email,
+    tutorUser.password,
     tutorDeviceId,
     "Phase3Tutor/1.0",
   );
 
   const studentLogin = await loginAs(
-    "student@test.local",
-    "Password123!",
+    studentUser.email,
+    studentUser.password,
     studentDeviceId,
     "Phase3Student/1.0",
   );
-
-  const student = await prisma.user.findUnique({ where: { email: "student@test.local" }, select: { id: true } });
-  const admin = await prisma.user.findUnique({ where: { email: "admin@test.local" }, select: { id: true } });
-  assert(student?.id, "student user missing");
-  assert(admin?.id, "admin user missing");
 
   const createReq = makeRequest({
     path: "/api/sessions",
@@ -122,7 +136,7 @@ async function main() {
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
     userAgent: "Phase3Tutor/1.0",
-    body: { userId: student.id, roleInSession: "STUDENT" },
+    body: { userId: studentUser.id, roleInSession: "STUDENT" },
   });
   const addRes = await addParticipantRoute(addReq, { params: Promise.resolve({ id: sessionId }) });
   assert(addRes.status === 200, `add participant failed with ${addRes.status}`);
@@ -133,25 +147,25 @@ async function main() {
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
     userAgent: "Phase3Tutor/1.0",
-    body: { userId: admin.id, roleInSession: "STUDENT" },
+    body: { userId: extraUser.id, roleInSession: "STUDENT" },
   });
   const addAdminRes = await addParticipantRoute(addAdminReq, { params: Promise.resolve({ id: sessionId }) });
   assert(addAdminRes.status === 200, `add admin as participant failed with ${addAdminRes.status}`);
 
   const removeAdminReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${admin.id}`,
+    path: `/api/sessions/${sessionId}/participants/${extraUser.id}`,
     method: "DELETE",
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
     userAgent: "Phase3Tutor/1.0",
   });
   const removeAdminRes = await deleteParticipantRoute(removeAdminReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: admin.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: extraUser.id }),
   });
   assert(removeAdminRes.status === 200, `remove admin participant failed with ${removeAdminRes.status}`);
 
   const patchTrueReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${student.id}`,
+    path: `/api/sessions/${sessionId}/participants/${studentUser.id}`,
     method: "PATCH",
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
@@ -159,12 +173,12 @@ async function main() {
     body: { canDraw: true },
   });
   const patchTrueRes = await patchParticipantRoute(patchTrueReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: student.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: studentUser.id }),
   });
   assert(patchTrueRes.status === 200, `patch true failed with ${patchTrueRes.status}`);
 
   const patchFalseReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${student.id}`,
+    path: `/api/sessions/${sessionId}/participants/${studentUser.id}`,
     method: "PATCH",
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
@@ -172,7 +186,7 @@ async function main() {
     body: { canDraw: false },
   });
   const patchFalseRes = await patchParticipantRoute(patchFalseReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: student.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: studentUser.id }),
   });
   assert(patchFalseRes.status === 200, `patch false failed with ${patchFalseRes.status}`);
 
@@ -202,13 +216,13 @@ async function main() {
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
     userAgent: "Phase3Tutor/1.0",
-    body: { userId: admin.id },
+    body: { userId: extraUser.id },
   });
   const addAfterEndRes = await addParticipantRoute(addAfterEndReq, { params: Promise.resolve({ id: sessionId }) });
   await expectError(addAfterEndRes, 409, "SESSION_ENDED");
 
   const patchAfterEndReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${student.id}`,
+    path: `/api/sessions/${sessionId}/participants/${studentUser.id}`,
     method: "PATCH",
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
@@ -216,19 +230,19 @@ async function main() {
     body: { canDraw: true },
   });
   const patchAfterEndRes = await patchParticipantRoute(patchAfterEndReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: student.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: studentUser.id }),
   });
   await expectError(patchAfterEndRes, 409, "SESSION_ENDED");
 
   const removeAfterEndReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${student.id}`,
+    path: `/api/sessions/${sessionId}/participants/${studentUser.id}`,
     method: "DELETE",
     accessToken: tutorLogin.accessToken,
     deviceId: tutorDeviceId,
     userAgent: "Phase3Tutor/1.0",
   });
   const removeAfterEndRes = await deleteParticipantRoute(removeAfterEndReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: student.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: studentUser.id }),
   });
   await expectError(removeAfterEndRes, 409, "SESSION_ENDED");
 
@@ -263,7 +277,7 @@ async function main() {
   await expectError(studentStartRes, 403, "FORBIDDEN");
 
   const studentMutateReq = makeRequest({
-    path: `/api/sessions/${sessionId}/participants/${student.id}`,
+    path: `/api/sessions/${sessionId}/participants/${studentUser.id}`,
     method: "PATCH",
     accessToken: studentLogin.accessToken,
     deviceId: studentDeviceId,
@@ -271,7 +285,7 @@ async function main() {
     body: { canDraw: true },
   });
   const studentMutateRes = await patchParticipantRoute(studentMutateReq, {
-    params: Promise.resolve({ id: sessionId, participantUserId: student.id }),
+    params: Promise.resolve({ id: sessionId, participantUserId: studentUser.id }),
   });
   await expectError(studentMutateRes, 403, "FORBIDDEN");
 

@@ -7,11 +7,20 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "types": ["node", "react", "react-dom"],
+    "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
       "@/*": ["*"]
     }
   },
-  "include": ["prisma/**/*.ts", "src/**/*.ts", "app/**/*.ts", "scripts/**/*.ts", "server-ws.ts"]
+  "include": [
+    "prisma/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "scripts/**/*.ts",
+    "server-ws.ts"
+  ]
 }

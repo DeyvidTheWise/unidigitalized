@@ -107,7 +107,7 @@ async function waitForOpen(ws: WebSocket): Promise<void> {
       clearTimeout(timeout);
       resolve();
     });
-    ws.once("error", (error) => {
+    ws.once("error", (error: Error) => {
       clearTimeout(timeout);
       reject(error);
     });
@@ -152,7 +152,7 @@ async function testUnauthenticatedRejected() {
       reject(new Error("Expected unauthenticated close"));
     }, 5_000);
 
-    ws.on("close", (code) => {
+    ws.on("close", (code: number) => {
       clearTimeout(timeout);
       assert(code === 4401, `Expected 4401 for unauthenticated close, got ${code}`);
       resolve();
