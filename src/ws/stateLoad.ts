@@ -1,18 +1,25 @@
 import { prisma } from "../lib/prisma";
+import { requestSnapshotForSession } from "../snapshots/snapshotWorker";
 
-const JOIN_OP_LIMIT = 5000;
+const MAX_JOIN_OPS = Number.parseInt(process.env.MAX_JOIN_OPS ?? "5000", 10);
+const SNAPSHOT_TRIGGER_THRESHOLD = Number.parseInt(process.env.SNAPSHOT_OP_THRESHOLD ?? "300", 10);
+
+export type JoinSnapshotPayload = {
+  lastServerSeq: number;
+  state: unknown;
+};
 
 export async function loadJoinState(sessionId: string): Promise<{
-  lastServerSeq: number;
-  stateSnapshot: unknown | null;
-  ops: Array<{
+  snapshot: JoinSnapshotPayload | null;
+  opsAfterSnapshot: Array<{
     serverSeq: number;
     actorUserId: string;
     opType: string;
     payload: unknown;
     createdAt: string;
   }>;
-  truncated: boolean;
+  lastServerSeqFinal: number;
+  needsResync: boolean;
 }> {
   const latestSnapshot = await prisma.whiteboardSnapshot.findFirst({
     where: { sessionId },
@@ -27,26 +34,51 @@ export async function loadJoinState(sessionId: string): Promise<{
       serverSeq: { gt: afterSeq },
     },
     orderBy: { serverSeq: "asc" },
-    take: JOIN_OP_LIMIT + 1,
+    take: MAX_JOIN_OPS + 1,
   });
 
-  const truncated = ops.length > JOIN_OP_LIMIT;
-  const limitedOps = truncated ? ops.slice(0, JOIN_OP_LIMIT) : ops;
+  const overLimit = ops.length > MAX_JOIN_OPS;
 
-  const highestSeq = limitedOps.length
-    ? limitedOps[limitedOps.length - 1].serverSeq
-    : latestSnapshot?.lastServerSeq ?? BigInt(0);
+  if (overLimit) {
+    requestSnapshotForSession(sessionId);
+
+    const finalSeq = Number(ops[ops.length - 1]?.serverSeq ?? latestSnapshot?.lastServerSeq ?? BigInt(0));
+    return {
+      snapshot: latestSnapshot
+        ? {
+            lastServerSeq: Number(latestSnapshot.lastServerSeq),
+            state: latestSnapshot.state,
+          }
+        : null,
+      opsAfterSnapshot: [],
+      lastServerSeqFinal: finalSeq,
+      needsResync: true,
+    };
+  }
+
+  if (!latestSnapshot && ops.length >= SNAPSHOT_TRIGGER_THRESHOLD) {
+    requestSnapshotForSession(sessionId);
+  }
+
+  const finalSeq = ops.length
+    ? Number(ops[ops.length - 1].serverSeq)
+    : Number(latestSnapshot?.lastServerSeq ?? BigInt(0));
 
   return {
-    lastServerSeq: Number(highestSeq),
-    stateSnapshot: latestSnapshot?.state ?? null,
-    ops: limitedOps.map((op) => ({
+    snapshot: latestSnapshot
+      ? {
+          lastServerSeq: Number(latestSnapshot.lastServerSeq),
+          state: latestSnapshot.state,
+        }
+      : null,
+    opsAfterSnapshot: ops.map((op) => ({
       serverSeq: Number(op.serverSeq),
       actorUserId: op.actorUserId,
       opType: op.opType,
       payload: op.payload,
       createdAt: op.createdAt.toISOString(),
     })),
-    truncated,
+    lastServerSeqFinal: finalSeq,
+    needsResync: false,
   };
 }

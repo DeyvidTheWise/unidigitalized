@@ -11,7 +11,9 @@
     "auth:sanity": "ts-node scripts/auth-sanity.ts",
     "session:sanity": "ts-node -r tsconfig-paths/register scripts/test-session-lifecycle.ts",
     "dev:ws": "ts-node -r tsconfig-paths/register server-ws.ts",
-    "ws:smoke": "ts-node -r tsconfig-paths/register scripts/ws-smoke.ts"
+    "ws:smoke": "ts-node -r tsconfig-paths/register scripts/ws-smoke.ts",
+    "dev:snapshots": "ts-node -r tsconfig-paths/register scripts/run-snapshot-worker.ts",
+    "snapshot:smoke": "ts-node -r tsconfig-paths/register scripts/snapshot-smoke.ts"
   },
   "keywords": [],
   "author": "",

@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { requestSnapshotForSession } from "../snapshots/snapshotWorker";
 import type { WsRejectCode } from "./protocol";
+
+const SNAPSHOT_OP_THRESHOLD = Number.parseInt(process.env.SNAPSHOT_OP_THRESHOLD ?? "300", 10);
 
 type IngestInput = {
   sessionId: string;
@@ -29,11 +32,16 @@ export type IngestResult =
       message: string;
     };
 
-async function auditReject(input: IngestInput, code: WsRejectCode, message: string): Promise<void> {
+async function auditReject(
+  input: IngestInput,
+  code: WsRejectCode,
+  message: string,
+  action = "WS_OP_REJECT",
+): Promise<void> {
   await prisma.auditLog.create({
     data: {
       actorUserId: input.actorUserId,
-      action: "WS_OP_REJECT",
+      action,
       targetType: "SESSION",
       targetId: input.sessionId,
       ip: input.ip,
@@ -83,7 +91,11 @@ export async function ingestOp(input: IngestInput): Promise<IngestResult> {
       });
 
       if (!participant || participant.leftAt) {
-        return { accepted: false as const, code: "NOT_PARTICIPANT" as const, message: "User is not an active participant." };
+        return {
+          accepted: false as const,
+          code: "NOT_PARTICIPANT" as const,
+          message: "User is not an active participant.",
+        };
       }
 
       const canSubmit =
@@ -163,15 +175,16 @@ export async function ingestOp(input: IngestInput): Promise<IngestResult> {
     });
 
     if (!result.accepted) {
-      if (
-        result.code === "NOT_PARTICIPANT" ||
-        result.code === "DRAW_NOT_ALLOWED" ||
-        result.code === "SESSION_NOT_ACTIVE" ||
-        result.code === "SESSION_ENDED"
-      ) {
+      if (result.code === "SESSION_NOT_ACTIVE" || result.code === "SESSION_ENDED") {
+        await auditReject(input, result.code, result.message, "WS_OP_REJECT_STATE");
+      } else if (result.code === "NOT_PARTICIPANT" || result.code === "DRAW_NOT_ALLOWED") {
         await auditReject(input, result.code, result.message);
       }
       return result;
+    }
+
+    if (!result.existing && result.serverSeq % SNAPSHOT_OP_THRESHOLD === 0) {
+      requestSnapshotForSession(input.sessionId);
     }
 
     return result;

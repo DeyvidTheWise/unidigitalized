@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import type { RawData, WebSocket } from "ws";
 import type { Prisma } from "@prisma/client";
 import { authenticateUpgradeRequest } from "./src/ws/auth";
+import { startSnapshotWorker } from "./src/snapshots/snapshotWorker";
 import { shouldBroadcastCursor } from "./src/ws/cursor";
 import { ingestOp } from "./src/ws/opIngest";
 import { parseClientMessage } from "./src/ws/protocol";
@@ -80,10 +81,10 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
         userId: meta.userId,
         sessionId: message.sessionId,
         presence,
-        lastServerSeq: state.lastServerSeq,
-        stateSnapshot: state.stateSnapshot,
-        ops: state.ops,
-        truncated: state.truncated,
+        snapshot: state.snapshot,
+        opsAfterSnapshot: state.opsAfterSnapshot,
+        lastServerSeqFinal: state.lastServerSeqFinal,
+        needsResync: state.needsResync,
       });
 
       broadcast(message.sessionId, {
@@ -174,4 +175,5 @@ wss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
   });
 });
 
+startSnapshotWorker();
 console.log(`WS server listening on ws://localhost:${WS_PORT}`);

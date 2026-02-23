@@ -48,16 +48,16 @@ export type ServerMessage =
       userId: string;
       sessionId: string;
       presence: Array<{ userId: string }>;
-      lastServerSeq: number;
-      stateSnapshot: unknown | null;
-      ops: Array<{
+      snapshot: { lastServerSeq: number; state: unknown } | null;
+      opsAfterSnapshot: Array<{
         serverSeq: number;
         actorUserId: string;
         opType: string;
         payload: unknown;
         createdAt: string;
       }>;
-      truncated: boolean;
+      lastServerSeqFinal: number;
+      needsResync: boolean;
     }
   | { type: "OP_ACCEPTED"; clientOpId: string; serverSeq: number }
   | { type: "OP_REJECTED"; clientOpId: string; code: WsRejectCode; message: string }

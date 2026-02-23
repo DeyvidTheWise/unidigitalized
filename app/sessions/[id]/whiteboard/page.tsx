@@ -58,8 +58,10 @@ function pointFromPointer(event: ReactPointerEvent<HTMLCanvasElement>): PointerI
 }
 
 function hydrateSceneFromWelcome(message: WelcomeMessage): SceneState {
-  let state = sceneFromUnknown(message.stateSnapshot);
-  const sortedOps = [...message.ops].sort((a, b) => a.serverSeq - b.serverSeq);
+  let state = message.snapshot?.state
+    ? sceneFromUnknown(message.snapshot.state)
+    : createEmptySceneState();
+  const sortedOps = [...message.opsAfterSnapshot].sort((a, b) => a.serverSeq - b.serverSeq);
 
   for (const op of sortedOps) {
     state = applyOp(state, op.opType, op.payload);
@@ -69,10 +71,10 @@ function hydrateSceneFromWelcome(message: WelcomeMessage): SceneState {
     };
   }
 
-  if (message.lastServerSeq > state.version.lastServerSeq) {
+  if (message.lastServerSeqFinal > state.version.lastServerSeq) {
     state = {
       ...state,
-      version: { lastServerSeq: message.lastServerSeq },
+      version: { lastServerSeq: message.lastServerSeqFinal },
     };
   }
 
@@ -104,6 +106,7 @@ export default function WhiteboardPage() {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [textInput, setTextInput] = useState<TextInputState | null>(null);
   const [remoteCursors, setRemoteCursors] = useState<CursorView[]>([]);
+  const [isResyncing, setIsResyncing] = useState(false);
 
   const activeTool: WhiteboardTool = useMemo(() => {
     if (toolName === "pen") return createPenTool();
@@ -221,8 +224,8 @@ export default function WhiteboardPage() {
 
         setPresenceCount(welcome.presence.length);
 
-        if (welcome.truncated) {
-          setErrorText("History was truncated while hydrating board state.");
+        if (welcome.needsResync) {
+          setErrorText("Resyncing board state from latest snapshot...");
         }
       },
       onBroadcast: (message: BroadcastMessage) => {
@@ -247,6 +250,14 @@ export default function WhiteboardPage() {
       },
       onRejected: (reject) => {
         setErrorText(`${reject.code}: ${reject.message}`);
+      },
+      onResyncingChange: (resyncing) => {
+        setIsResyncing(resyncing);
+        if (!resyncing) {
+          setErrorText((prev) =>
+            prev === "Resyncing board state from latest snapshot..." ? null : prev,
+          );
+        }
       },
     });
 
@@ -416,6 +427,25 @@ export default function WhiteboardPage() {
           }}
         >
           {readOnlyReason}
+        </div>
+      ) : null}
+
+      {isResyncing ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 88,
+            left: 12,
+            background: "#eff6ff",
+            color: "#1d4ed8",
+            border: "1px solid #93c5fd",
+            borderRadius: 8,
+            padding: "6px 10px",
+            zIndex: 5,
+            fontSize: 12,
+          }}
+        >
+          Resyncing board...
         </div>
       ) : null}
 

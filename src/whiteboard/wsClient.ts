@@ -7,16 +7,16 @@ export type WelcomeMessage = {
   userId: string;
   sessionId: string;
   presence: Array<{ userId: string }>;
-  lastServerSeq: number;
-  stateSnapshot: SerializableSceneState | null;
-  ops: Array<{
+  snapshot: { lastServerSeq: number; state: SerializableSceneState | null } | null;
+  opsAfterSnapshot: Array<{
     serverSeq: number;
     actorUserId: string;
     opType: string;
     payload: unknown;
     createdAt: string;
   }>;
-  truncated: boolean;
+  lastServerSeqFinal: number;
+  needsResync: boolean;
 };
 
 export type BroadcastMessage = {
@@ -56,11 +56,15 @@ export type WhiteboardWsHandlers = {
   onPresence?: (message: PresenceMessage) => void;
   onCursor?: (message: CursorMessage) => void;
   onRejected?: (message: RejectMessage) => void;
+  onResyncingChange?: (isResyncing: boolean, attempts: number) => void;
 };
 
 function wsUrl(): string {
   return process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001";
 }
+
+const MAX_RESYNC_RETRIES = 3;
+const RESYNC_DELAY_MS = 800;
 
 export class WhiteboardWsClient {
   private sessionId: string;
@@ -76,6 +80,7 @@ export class WhiteboardWsClient {
   private pendingOps = new Map<string, { opType: string }>();
 
   private lastCursorSentAt = 0;
+  private needsResyncRetries = 0;
 
   constructor(sessionId: string, handlers: WhiteboardWsHandlers) {
     this.sessionId = sessionId;
@@ -92,10 +97,7 @@ export class WhiteboardWsClient {
     socket.onopen = () => {
       this.reconnectAttempts = 0;
       this.handlers.onStatus?.("connected");
-      this.sendRaw({
-        type: "HELLO",
-        sessionId: this.sessionId,
-      });
+      this.sendHello();
     };
 
     socket.onmessage = (event) => {
@@ -129,6 +131,7 @@ export class WhiteboardWsClient {
 
     this.socket = null;
     this.handlers.onStatus?.("offline");
+    this.handlers.onResyncingChange?.(false, this.needsResyncRetries);
   }
 
   submitOp(opType: string, payload: unknown): string | null {
@@ -175,6 +178,13 @@ export class WhiteboardWsClient {
     this.socket.send(JSON.stringify(payload));
   }
 
+  private sendHello(): void {
+    this.sendRaw({
+      type: "HELLO",
+      sessionId: this.sessionId,
+    });
+  }
+
   private scheduleReconnect(): void {
     this.reconnectAttempts += 1;
     const delayMs = Math.min(5000, 500 * 2 ** (this.reconnectAttempts - 1));
@@ -183,6 +193,27 @@ export class WhiteboardWsClient {
     this.reconnectTimer = window.setTimeout(() => {
       this.connect();
     }, delayMs);
+  }
+
+  private scheduleResyncHello(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (this.needsResyncRetries >= MAX_RESYNC_RETRIES) {
+      this.handlers.onResyncingChange?.(false, this.needsResyncRetries);
+      return;
+    }
+
+    this.needsResyncRetries += 1;
+    this.handlers.onResyncingChange?.(true, this.needsResyncRetries);
+
+    window.setTimeout(() => {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      this.sendHello();
+    }, RESYNC_DELAY_MS);
   }
 
   private handleMessage(rawData: unknown): void {
@@ -196,9 +227,16 @@ export class WhiteboardWsClient {
     if (!message || typeof message.type !== "string") return;
 
     if (message.type === "WELCOME") {
-      this.lastServerSeq = typeof message.lastServerSeq === "number" ? message.lastServerSeq : 0;
+      this.lastServerSeq = typeof message.lastServerSeqFinal === "number" ? message.lastServerSeqFinal : 0;
       this.queuedBroadcasts.clear();
       this.handlers.onWelcome?.(message as WelcomeMessage);
+
+      if (message.needsResync) {
+        this.scheduleResyncHello();
+      } else {
+        this.needsResyncRetries = 0;
+        this.handlers.onResyncingChange?.(false, 0);
+      }
       return;
     }
 
