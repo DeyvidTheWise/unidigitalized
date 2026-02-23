@@ -9,7 +9,9 @@
     "prisma:migrate": "prisma migrate dev --name init_core_schema",
     "prisma:seed": "prisma db seed",
     "auth:sanity": "ts-node scripts/auth-sanity.ts",
-    "session:sanity": "ts-node -r tsconfig-paths/register scripts/test-session-lifecycle.ts"
+    "session:sanity": "ts-node -r tsconfig-paths/register scripts/test-session-lifecycle.ts",
+    "dev:ws": "ts-node -r tsconfig-paths/register server-ws.ts",
+    "ws:smoke": "ts-node -r tsconfig-paths/register scripts/ws-smoke.ts"
   },
   "keywords": [],
   "author": "",
@@ -18,11 +20,14 @@
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "bcrypt": "^6.0.0",
+    "dotenv": "^17.3.1",
     "jsonwebtoken": "^9.0.3",
     "next": "^16.1.6",
     "prisma": "^6.19.2",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

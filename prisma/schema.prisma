@@ -79,10 +79,18 @@ model Session {
   whiteboardOps WhiteboardOp[]
   snapshots     WhiteboardSnapshot[]
   exports       Export[]
+  sequence      SessionSequence?
 
   @@index([status, scheduledStartAt])
   @@index([createdByUserId])
   /// Session immutability when status = ENDED is enforced at API layer.
+}
+
+model SessionSequence {
+  sessionId String @id @db.Uuid
+  nextSeq   BigInt @default(1)
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 }
 
 model SessionParticipant {
