@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TUTOR
+  STUDENT
+}
+
+enum SessionStatus {
+  SCHEDULED
+  ACTIVE
+  ENDED
+}
+
+enum SessionParticipantRole {
+  TUTOR
+  STUDENT
+}
+
+enum ExportKind {
+  PDF
+}
+
+model User {
+  id           String               @id @default(uuid()) @db.Uuid
+  /// Email should be normalized to lowercase in API/service before write.
+  email        String               @unique @db.VarChar(320)
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  devices                 Device[]
+  createdSessions         Session[]              @relation("SessionCreator")
+  sessionParticipants     SessionParticipant[]
+  whiteboardOps           WhiteboardOp[]
+  auditLogs               AuditLog[]
+  requestedExports        Export[]               @relation("ExportRequester")
+}
+
+model Device {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  fingerprintHash String
+  label           String?
+  verifiedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([userId, fingerprintHash])
+  @@index([userId])
+  /// Max 3 verified devices per user is enforced at API layer (query by userId where verifiedAt is not null and revokedAt is null).
+}
+
+model Session {
+  id               String        @id @default(uuid()) @db.Uuid
+  title            String
+  scheduledStartAt DateTime
+  actualStartAt    DateTime?
+  endedAt          DateTime?
+  status           SessionStatus
+  createdByUserId  String        @db.Uuid
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  createdBy    User                   @relation("SessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  participants SessionParticipant[]
+  whiteboardOps WhiteboardOp[]
+  snapshots    WhiteboardSnapshot[]
+  exports      Export[]
+
+  @@index([status, scheduledStartAt])
+  @@index([createdByUserId])
+  /// Session immutability when status = ENDED is enforced at API layer.
+}
+
+model SessionParticipant {
+  id            String                  @id @default(uuid()) @db.Uuid
+  sessionId     String                  @db.Uuid
+  userId        String                  @db.Uuid
+  roleInSession SessionParticipantRole
+  canDraw       Boolean                 @default(false)
+  joinedAt      DateTime?
+  leftAt        DateTime?
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([sessionId])
+  @@index([userId])
+}
+
+model WhiteboardOp {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @db.Uuid
+  serverSeq   BigInt
+  actorUserId String   @db.Uuid
+  clientOpId  String
+  opType      String
+  payload     Json
+  createdAt   DateTime @default(now())
+
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorUser User    @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([sessionId, serverSeq])
+  @@unique([sessionId, actorUserId, clientOpId])
+  @@index([sessionId, serverSeq])
+  @@index([sessionId, createdAt])
+  /// Append-only contract: API must never update/delete rows in this table.
+}
+
+model WhiteboardSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  sessionId     String   @db.Uuid
+  lastServerSeq BigInt
+  state         Json
+  createdAt     DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([sessionId, lastServerSeq])
+  @@index([sessionId, lastServerSeq(sort: Desc)])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @db.Uuid
+  action      String
+  targetType  String
+  targetId    String
+  ip          String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model Export {
+  id                String    @id @default(uuid()) @db.Uuid
+  sessionId         String    @db.Uuid
+  requestedByUserId String    @db.Uuid
+  kind              ExportKind
+  storagePath       String
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  deletedAt         DateTime?
+
+  session         Session @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestedByUser User    @relation("ExportRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([expiresAt])
+}
