@@ -1,0 +1,22 @@
+import { NextRequest, NextResponse } from "next/server";
+import { handleAuthError } from "@/src/lib/auth/http";
+import { requireAuth } from "@/src/lib/auth/requireAuth";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { user, device } = await requireAuth(request);
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      device: {
+        id: device.id,
+        verifiedAt: device.verifiedAt,
+      },
+    });
+  } catch (error) {
+    return handleAuthError(error);
+  }
+}

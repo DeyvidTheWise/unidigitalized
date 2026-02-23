@@ -37,12 +37,13 @@ model User {
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
-  devices                 Device[]
-  createdSessions         Session[]              @relation("SessionCreator")
-  sessionParticipants     SessionParticipant[]
-  whiteboardOps           WhiteboardOp[]
-  auditLogs               AuditLog[]
-  requestedExports        Export[]               @relation("ExportRequester")
+  devices             Device[]
+  createdSessions     Session[]              @relation("SessionCreator")
+  sessionParticipants SessionParticipant[]
+  whiteboardOps       WhiteboardOp[]
+  auditLogs           AuditLog[]
+  requestedExports    Export[]               @relation("ExportRequester")
+  refreshTokens       RefreshToken[]
 }
 
 model Device {
@@ -54,7 +55,8 @@ model Device {
   revokedAt       DateTime?
   createdAt       DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refreshTokens RefreshToken[]
 
   @@unique([userId, fingerprintHash])
   @@index([userId])
@@ -72,11 +74,11 @@ model Session {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  createdBy    User                   @relation("SessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  participants SessionParticipant[]
+  createdBy     User                   @relation("SessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  participants  SessionParticipant[]
   whiteboardOps WhiteboardOp[]
-  snapshots    WhiteboardSnapshot[]
-  exports      Export[]
+  snapshots     WhiteboardSnapshot[]
+  exports       Export[]
 
   @@index([status, scheduledStartAt])
   @@index([createdByUserId])
@@ -166,4 +168,21 @@ model Export {
 
   @@index([sessionId, createdAt])
   @@index([expiresAt])
+}
+
+model RefreshToken {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid
+  deviceId          String   @db.Uuid
+  tokenHash         String   @unique
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?  @db.Uuid
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([deviceId, expiresAt])
 }

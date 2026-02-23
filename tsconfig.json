@@ -7,7 +7,11 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["*"]
+    }
   },
-  "include": ["prisma/**/*.ts"]
+  "include": ["prisma/**/*.ts", "src/**/*.ts", "app/**/*.ts", "scripts/**/*.ts"]
 }
