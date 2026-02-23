@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleAuthError } from "@/src/lib/auth/http";
 import { requireAuth } from "@/src/lib/auth/requireAuth";
+import { withRequestLogging } from "@/src/lib/logging/requestLogger";
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLogging("auth_me", async function GET(request: NextRequest) {
   try {
     const { user, device } = await requireAuth(request);
     return NextResponse.json({
@@ -19,4 +20,4 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return handleAuthError(error);
   }
-}
+});

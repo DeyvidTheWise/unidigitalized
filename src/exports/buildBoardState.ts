@@ -11,6 +11,9 @@ export async function buildBoardState(sessionId: string): Promise<{
   objectCount: number;
   replayOpsCount: number;
 }> {
+  // Index path:
+  // - WhiteboardSnapshot(sessionId, lastServerSeq DESC) to seed export from latest checkpoint.
+  // - WhiteboardOp(sessionId, serverSeq) to replay only trailing operations in order.
   const latestSnapshot = await prisma.whiteboardSnapshot.findFirst({
     where: { sessionId },
     orderBy: { lastServerSeq: "desc" },

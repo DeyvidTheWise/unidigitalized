@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { authCookieNames, clearAuthCookies } from "@/src/lib/auth/cookies";
 import { decodeJwtNoVerify } from "@/src/lib/auth/tokens";
 import { logoutSession } from "@/src/lib/auth/service";
+import { withRequestLogging } from "@/src/lib/logging/requestLogger";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLogging("auth_logout", async function POST(request: NextRequest) {
   const refreshToken = request.cookies.get(authCookieNames.refresh)?.value;
   const accessToken = request.cookies.get(authCookieNames.access)?.value;
 
@@ -27,4 +28,4 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.json({ ok: true });
   clearAuthCookies(response);
   return response;
-}
+});

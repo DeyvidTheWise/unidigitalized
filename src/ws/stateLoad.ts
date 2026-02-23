@@ -21,6 +21,9 @@ export async function loadJoinState(sessionId: string): Promise<{
   lastServerSeqFinal: number;
   needsResync: boolean;
 }> {
+  // Index path:
+  // - WhiteboardSnapshot(sessionId, lastServerSeq DESC) for latest snapshot lookup.
+  // - WhiteboardOp(sessionId, serverSeq) for ordered replay after snapshot.
   const latestSnapshot = await prisma.whiteboardSnapshot.findFirst({
     where: { sessionId },
     orderBy: { lastServerSeq: "desc" },

@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import type { ServerMessage } from "./protocol";
 
 export type SocketMeta = {
+  wsConnId: string;
   userId: string;
   role: "ADMIN" | "TUTOR" | "STUDENT";
   request: IncomingMessage;
@@ -20,6 +21,10 @@ export function attachSocket(socket: WebSocket, meta: SocketMeta): void {
 
 export function getSocketMeta(socket: WebSocket): SocketMeta | undefined {
   return metaBySocket.get(socket);
+}
+
+export function activeConnectionCount(): number {
+  return metaBySocket.size;
 }
 
 export function removeSocket(socket: WebSocket): string | null {

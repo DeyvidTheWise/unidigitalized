@@ -18,5 +18,5 @@ export function handleAuthError(error: unknown): NextResponse {
     return jsonError(error.status, error.code, error.message);
   }
 
-  return jsonError(500, "TOKEN_INVALID", "Unexpected server error.");
+  return jsonError(500, "INTERNAL_ERROR", "Unexpected server error.");
 }

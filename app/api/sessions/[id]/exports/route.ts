@@ -17,6 +17,7 @@ export async function GET(
     const { id: sessionId } = await context.params;
     await requireSessionAccess(user, sessionId);
 
+    // Index path: Export(sessionId, createdAt) for ordered export listing by session.
     const exportsList = await prisma.export.findMany({
       where: {
         sessionId,

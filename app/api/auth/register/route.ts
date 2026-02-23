@@ -4,9 +4,25 @@ import { authCookieNames, ensureDeviceIdCookie, setAuthCookies } from "@/src/lib
 import { computeDeviceFingerprint } from "@/src/lib/auth/device";
 import { handleAuthError, jsonError } from "@/src/lib/auth/http";
 import { registerUser } from "@/src/lib/auth/service";
+import { checkRateLimit } from "@/src/lib/security/rateLimit";
+import { withRequestLogging } from "@/src/lib/logging/requestLogger";
 
-export async function POST(request: NextRequest) {
+function getClientIp(request: NextRequest): string {
+  return (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown").split(",")[0].trim();
+}
+
+export const POST = withRequestLogging("auth_register", async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const rate = checkRateLimit({
+      key: `auth:register:${ip}`,
+      limit: 5,
+      windowMs: 60_000,
+    });
+    if (!rate.ok) {
+      return jsonError(429, "RATE_LIMITED", "Too many registration attempts. Please retry shortly.");
+    }
+
     const body = await request.json();
     const email = typeof body?.email === "string" ? body.email : "";
     const password = typeof body?.password === "string" ? body.password : "";
@@ -27,7 +43,7 @@ export async function POST(request: NextRequest) {
       request,
       deviceLabel,
       requestMeta: {
-        ip: request.headers.get("x-forwarded-for") ?? null,
+        ip,
         userAgent: request.headers.get("user-agent") ?? null,
       },
     });
@@ -42,4 +58,4 @@ export async function POST(request: NextRequest) {
     }
     return handleAuthError(error);
   }
-}
+});
