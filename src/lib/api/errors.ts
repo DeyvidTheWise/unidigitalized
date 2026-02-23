@@ -5,8 +5,12 @@ export type ApiErrorCode =
   | "NOT_FOUND"
   | "VALIDATION_ERROR"
   | "SESSION_ENDED"
+  | "SESSION_NOT_ENDED"
   | "INVALID_STATE_TRANSITION"
-  | "ALREADY_PARTICIPANT";
+  | "ALREADY_PARTICIPANT"
+  | "EXPORT_EXPIRED"
+  | "NEED_SNAPSHOT"
+  | "INTERNAL_ERROR";
 
 export class ApiError extends Error {
   status: number;
@@ -36,5 +40,5 @@ export function handleApiError(error: unknown): NextResponse {
     return jsonApiError(error.status, error.code, error.message);
   }
 
-  return jsonApiError(500, "VALIDATION_ERROR", "Unexpected server error.");
+  return jsonApiError(500, "INTERNAL_ERROR", "Unexpected server error.");
 }

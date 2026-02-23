@@ -13,7 +13,9 @@
     "dev:ws": "ts-node -r tsconfig-paths/register server-ws.ts",
     "ws:smoke": "ts-node -r tsconfig-paths/register scripts/ws-smoke.ts",
     "dev:snapshots": "ts-node -r tsconfig-paths/register scripts/run-snapshot-worker.ts",
-    "snapshot:smoke": "ts-node -r tsconfig-paths/register scripts/snapshot-smoke.ts"
+    "snapshot:smoke": "ts-node -r tsconfig-paths/register scripts/snapshot-smoke.ts",
+    "exports:cleanup": "ts-node -r tsconfig-paths/register scripts/exports-cleanup.ts",
+    "export:smoke": "ts-node -r tsconfig-paths/register scripts/export-smoke.ts"
   },
   "keywords": [],
   "author": "",
@@ -22,9 +24,11 @@
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "bcrypt": "^6.0.0",
+    "canvas": "^3.2.1",
     "dotenv": "^17.3.1",
     "jsonwebtoken": "^9.0.3",
     "next": "^16.1.6",
+    "pdf-lib": "^1.17.1",
     "prisma": "^6.19.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
