@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { Prisma, UserRole } from "@prisma/client";
 import { prisma } from "../prisma";
-import { deriveDeviceLabel, upsertDeviceForUser, verifyDevice } from "./device";
+import { computeDeviceFingerprintForUser, deriveDeviceLabel, upsertDeviceForUser, verifyDevice } from "./device";
 import { hashPassword, verifyPassword } from "./password";
 import {
   createAccessToken,
@@ -21,8 +21,8 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function sanitizeUser(user: { id: string; email: string; role: UserRole }): PublicUser {
-  return { id: user.id, email: user.email, role: user.role };
+function sanitizeUser(user: { id: string; firstName: string; lastName: string; email: string; role: UserRole }): PublicUser {
+  return { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role };
 }
 
 type RequestMeta = {
@@ -32,9 +32,13 @@ type RequestMeta = {
 
 export async function registerUser(params: {
   email: string;
+  firstName?: string;
+  lastName?: string;
   password: string;
-  fingerprintHash: string;
-  request: Pick<NextRequest, "headers">;
+  deviceId?: string;
+  fingerprintHash?: string;
+  userAgent?: string | null;
+  request?: Pick<NextRequest, "headers">;
   deviceLabel?: string;
   role?: UserRole;
   requestMeta?: RequestMeta;
@@ -43,15 +47,17 @@ export async function registerUser(params: {
   const passwordHash = await hashPassword(params.password);
   const role = params.role ?? UserRole.STUDENT;
 
-  let createdUser: { id: string; email: string; role: UserRole };
+  let createdUser: { id: string; firstName: string; lastName: string; email: string; role: UserRole };
   try {
     createdUser = await prisma.user.create({
       data: {
+        firstName: (params.firstName?.trim() || "User").slice(0, 40),
+        lastName: (params.lastName?.trim() || "Local").slice(0, 40),
         email,
         passwordHash,
         role,
       },
-      select: { id: true, email: true, role: true },
+      select: { id: true, firstName: true, lastName: true, email: true, role: true },
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -60,12 +66,15 @@ export async function registerUser(params: {
     throw error;
   }
 
+  const fingerprintHash =
+    params.fingerprintHash ??
+    computeDeviceFingerprintForUser(createdUser.id, params.deviceId ?? "legacy-device");
   const device = await upsertDeviceForUser(
     createdUser.id,
-    params.fingerprintHash,
-    deriveDeviceLabel(params.request, params.deviceLabel),
+    fingerprintHash,
+    deriveDeviceLabel(params.userAgent ?? params.request?.headers.get("user-agent"), params.deviceLabel),
   );
-  const verifiedDevice = await verifyDevice(createdUser.id, device.id);
+  const verifiedDevice = await verifyDevice(createdUser.id, device.id, { bypassLimit: createdUser.role === "ADMIN" });
 
   const refreshToken = createRefreshToken();
   const refreshTokenHash = hashToken(refreshToken);
@@ -111,8 +120,10 @@ export async function registerUser(params: {
 export async function loginUser(params: {
   email: string;
   password: string;
-  fingerprintHash: string;
-  request: Pick<NextRequest, "headers">;
+  deviceId?: string;
+  fingerprintHash?: string;
+  userAgent?: string | null;
+  request?: Pick<NextRequest, "headers">;
   deviceLabel?: string;
   requestMeta?: RequestMeta;
 }) {
@@ -122,6 +133,8 @@ export async function loginUser(params: {
     where: { email },
     select: {
       id: true,
+      firstName: true,
+      lastName: true,
       email: true,
       role: true,
       passwordHash: true,
@@ -137,12 +150,15 @@ export async function loginUser(params: {
     throw new AuthError(401, "INVALID_CREDENTIALS", "Invalid email or password.");
   }
 
+  const fingerprintHash =
+    params.fingerprintHash ??
+    computeDeviceFingerprintForUser(user.id, params.deviceId ?? "legacy-device");
   const device = await upsertDeviceForUser(
     user.id,
-    params.fingerprintHash,
-    deriveDeviceLabel(params.request, params.deviceLabel),
+    fingerprintHash,
+    deriveDeviceLabel(params.userAgent ?? params.request?.headers.get("user-agent"), params.deviceLabel),
   );
-  const verifiedDevice = await verifyDevice(user.id, device.id);
+  const verifiedDevice = await verifyDevice(user.id, device.id, { bypassLimit: user.role === "ADMIN" });
 
   await prisma.refreshToken.updateMany({
     where: {
@@ -204,7 +220,7 @@ export async function refreshSession(params: { refreshToken: string }) {
     where: { tokenHash },
     include: {
       user: {
-        select: { id: true, email: true, role: true },
+        select: { id: true, firstName: true, lastName: true, email: true, role: true },
       },
       device: true,
     },

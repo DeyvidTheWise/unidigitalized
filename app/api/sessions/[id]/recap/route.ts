@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/src/lib/auth/requireAuth";
-import { requireSessionAccess } from "@/src/lib/auth/requireRole";
+import { requireSessionReadAccess } from "@/src/lib/auth/requireRole";
 import { handleApiError } from "@/src/lib/api/errors";
 import { prisma } from "@/src/lib/prisma";
 
@@ -12,7 +12,7 @@ export async function GET(
     const { user } = await requireAuth(request);
     const { id: sessionId } = await context.params;
 
-    const session = await requireSessionAccess(user, sessionId);
+    const session = await requireSessionReadAccess(user, sessionId);
     const participantsCount = await prisma.sessionParticipant.count({
       where: {
         sessionId,

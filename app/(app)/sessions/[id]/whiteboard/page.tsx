@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useParams } from "next/navigation";
 import { applyOp } from "@/src/whiteboard/applyOp";
 import { createEmptySceneState, sceneFromUnknown, type SceneState } from "@/src/whiteboard/model";
@@ -22,8 +31,9 @@ import {
 } from "@/src/whiteboard/wsClient";
 import { apiGet, apiPost, ApiClientError } from "@/src/lib/client/api";
 import { useMe } from "@/src/lib/client/auth";
-import { Drawer } from "@/src/components/Drawer";
-import { Toast } from "@/src/components/Toast";
+import { Drawer } from "@/src/components/ui/Drawer";
+import { Toast } from "@/src/components/ui/Toast";
+import { Badge } from "@/src/components/ui/Badge";
 
 type SessionDetailsResponse = {
   session: {
@@ -32,6 +42,9 @@ type SessionDetailsResponse = {
   };
   participants: Array<{
     userId: string;
+    user?: {
+      email?: string;
+    };
     roleInSession: "TUTOR" | "STUDENT";
     canDraw: boolean;
     leftAt: string | null;
@@ -53,6 +66,12 @@ type CursorView = {
   userId: string;
   x: number;
   y: number;
+  initials: string;
+};
+
+type CursorOverlayHandle = {
+  upsertCursor: (cursor: CursorView) => void;
+  clear: () => void;
 };
 
 type TextInputState = {
@@ -92,6 +111,95 @@ function hydrateSceneFromWelcome(message: WelcomeMessage): SceneState {
   return state;
 }
 
+function initialsFromLabel(label: string): string {
+  const cleaned = label.trim();
+  if (!cleaned) return "?";
+
+  const pieces = cleaned
+    .replace(/[@._-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (pieces.length >= 2) {
+    return (pieces[0][0] + pieces[1][0]).toUpperCase();
+  }
+  if (pieces.length === 1) {
+    return pieces[0].slice(0, 2).toUpperCase();
+  }
+  return "?";
+}
+
+function colorFromUserId(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i += 1) {
+    hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue} 70% 45%)`;
+}
+
+const RemoteCursorOverlay = forwardRef<CursorOverlayHandle>(function RemoteCursorOverlay(_props, ref) {
+  const [cursors, setCursors] = useState<Map<string, CursorView>>(new Map());
+  const rafRef = useRef<number | null>(null);
+  const pendingRef = useRef<Map<string, CursorView>>(new Map());
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      upsertCursor(cursor) {
+        pendingRef.current.set(cursor.userId, cursor);
+        if (rafRef.current !== null) return;
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setCursors(new Map(pendingRef.current));
+        });
+      },
+      clear() {
+        pendingRef.current.clear();
+        setCursors(new Map());
+      },
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <>
+      {[...cursors.values()].map((cursor) => (
+        <div
+          key={cursor.userId}
+          style={{
+            position: "absolute",
+            left: cursor.x,
+            top: cursor.y,
+            width: 26,
+            height: 26,
+            borderRadius: "50%",
+            background: colorFromUserId(cursor.userId),
+            color: "#ffffff",
+            display: "grid",
+            placeItems: "center",
+            fontSize: 10,
+            fontWeight: 700,
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "none",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+          }}
+        >
+          {cursor.initials}
+        </div>
+      ))}
+    </>
+  );
+});
+
 export default function WhiteboardPage() {
   const params = useParams<{ id: string }>();
   const sessionId = params?.id;
@@ -103,9 +211,9 @@ export default function WhiteboardPage() {
   const sceneRef = useRef<SceneState>(createEmptySceneState());
   const pointerDownRef = useRef(false);
   const textCommitRef = useRef<((text: string) => void) | null>(null);
-
-  const remoteCursorMapRef = useRef<Map<string, CursorView>>(new Map());
-  const cursorRafRef = useRef<number | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
+  const remoteCursorOverlayRef = useRef<CursorOverlayHandle | null>(null);
+  const participantInitialsRef = useRef<Map<string, string>>(new Map());
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
   const [toolName, setToolName] = useState<ToolName>("pen");
@@ -118,7 +226,6 @@ export default function WhiteboardPage() {
   const [canDraw, setCanDraw] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [textInput, setTextInput] = useState<TextInputState | null>(null);
-  const [remoteCursors, setRemoteCursors] = useState<CursorView[]>([]);
   const [isResyncing, setIsResyncing] = useState(false);
 
   const [participantsOpen, setParticipantsOpen] = useState(false);
@@ -139,14 +246,6 @@ export default function WhiteboardPage() {
     return createTextTool();
   }, [toolName, shapeKind]);
 
-  const updateRemoteCursorState = useCallback(() => {
-    if (cursorRafRef.current !== null) return;
-    cursorRafRef.current = requestAnimationFrame(() => {
-      cursorRafRef.current = null;
-      setRemoteCursors([...remoteCursorMapRef.current.values()]);
-    });
-  }, []);
-
   const loadSessionPermissions = useCallback(async () => {
     if (!sessionId) return;
 
@@ -164,6 +263,13 @@ export default function WhiteboardPage() {
       setCurrentUserId(me.id);
       const participant = sessionData.participants.find((entry) => entry.userId === me.id && entry.leftAt === null);
       const activeSession = sessionData.session.status === "ACTIVE";
+
+      const map = new Map<string, string>();
+      for (const p of sessionData.participants) {
+        const seed = p.user?.email ?? p.userId;
+        map.set(p.userId, initialsFromLabel(seed));
+      }
+      participantInitialsRef.current = map;
 
       const drawAllowed =
         activeSession &&
@@ -230,6 +336,24 @@ export default function WhiteboardPage() {
   useEffect(() => {
     if (!sessionId) return;
 
+    const interval = window.setInterval(() => {
+      void loadSessionPermissions();
+    }, 3000);
+
+    const onFocus = () => {
+      void loadSessionPermissions();
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [loadSessionPermissions, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
     const wsClient = new WhiteboardWsClient(sessionId, {
       onStatus: setConnectionStatus,
       onWelcome: (welcome: WelcomeMessage) => {
@@ -255,14 +379,31 @@ export default function WhiteboardPage() {
       },
       onCursor: (cursor) => {
         if (cursor.userId === currentUserId) return;
-        remoteCursorMapRef.current.set(cursor.userId, {
+        remoteCursorOverlayRef.current?.upsertCursor({
           userId: cursor.userId,
           x: cursor.x,
           y: cursor.y,
+          initials: participantInitialsRef.current.get(cursor.userId) ?? initialsFromLabel(cursor.userId),
         });
-        updateRemoteCursorState();
       },
-      onRejected: (reject) => setErrorText(`${reject.code}: ${reject.message}`),
+      onRejected: (reject) => {
+        setErrorText(`${reject.code}: ${reject.message}`);
+        if (reject.code === "DRAW_NOT_ALLOWED") {
+          setCanDraw(false);
+          setReadOnlyReason("View-only: drawing disabled by tutor.");
+          void loadSessionPermissions();
+        }
+        if (reject.code === "SESSION_ENDED") {
+          setCanDraw(false);
+          setReadOnlyReason("Session ended: board is read-only.");
+          void loadSessionPermissions();
+        }
+        if (reject.code === "SESSION_NOT_ACTIVE") {
+          setCanDraw(false);
+          setReadOnlyReason("Session is not active.");
+          void loadSessionPermissions();
+        }
+      },
       onResyncingChange: (resyncing) => {
         setIsResyncing(resyncing);
         if (!resyncing) {
@@ -277,10 +418,9 @@ export default function WhiteboardPage() {
     return () => {
       wsClient.disconnect();
       wsClientRef.current = null;
-      remoteCursorMapRef.current.clear();
-      setRemoteCursors([]);
+      remoteCursorOverlayRef.current?.clear();
     };
-  }, [currentUserId, sessionId, updateRemoteCursorState]);
+  }, [currentUserId, loadSessionPermissions, sessionId]);
 
   const submitOp = useCallback((opType: WhiteboardOpType, payload: unknown) => {
     wsClientRef.current?.submitOp(opType, payload);
@@ -307,6 +447,13 @@ export default function WhiteboardPage() {
       const point = pointFromPointer(event);
       wsClientRef.current?.sendCursor(point.x, point.y);
       if (!canDraw || !currentUserId) return;
+
+      if (activeTool.name === "text") {
+        // Avoid pointer capture for text mode so the input overlay can receive focus immediately.
+        pointerDownRef.current = false;
+        activeTool.onPointerDown(point, toolContext);
+        return;
+      }
 
       pointerDownRef.current = true;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -356,6 +503,14 @@ export default function WhiteboardPage() {
     setTextInput(null);
   }, [textInput]);
 
+  useEffect(() => {
+    if (!textInput) return;
+    const t = window.setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [textInput]);
+
   const createExport = async () => {
     if (!sessionId) return;
     setCreatingExport(true);
@@ -387,8 +542,14 @@ export default function WhiteboardPage() {
           gap: 4,
         }}
       >
-        <div>Session: {sessionStatus}</div>
-        <div>WS: {connectionStatus}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span>Session:</span>
+          <Badge text={sessionStatus} tone={sessionStatus === "ACTIVE" ? "success" : sessionStatus === "SCHEDULED" ? "warning" : "neutral"} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span>WS:</span>
+          <Badge text={connectionStatus.toUpperCase()} tone={connectionStatus === "connected" ? "success" : connectionStatus === "reconnecting" ? "warning" : "danger"} />
+        </div>
         <div>Presence: {presenceUsers.length}</div>
       </div>
 
@@ -465,28 +626,31 @@ export default function WhiteboardPage() {
         onPointerLeave={handlePointerUp}
       />
 
-      {remoteCursors.map((cursor) => (
-        <div key={cursor.userId} style={{ position: "absolute", left: cursor.x, top: cursor.y, width: 8, height: 8, borderRadius: "50%", background: "#dc2626", transform: "translate(-50%, -50%)", pointerEvents: "none" }} />
-      ))}
-
       {textInput ? (
-        <input
-          autoFocus
-          value={textInput.value}
-          onChange={(event) => setTextInput((prev) => (prev ? { ...prev, value: event.target.value } : prev))}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitTextInput();
-            }
-            if (event.key === "Escape") {
-              textCommitRef.current = null;
-              setTextInput(null);
-            }
-          }}
-          onBlur={commitTextInput}
-          style={{ position: "absolute", left: textInput.x, top: textInput.y - 20, zIndex: 20, minWidth: 160 }}
-        />
+        <div style={{ position: "absolute", left: textInput.x, top: textInput.y - 24, zIndex: 20, display: "flex", gap: 6 }}>
+          <input
+            ref={textInputRef}
+            value={textInput.value}
+            onChange={(event) => setTextInput((prev) => (prev ? { ...prev, value: event.target.value } : prev))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitTextInput();
+              }
+              if (event.key === "Escape") {
+                textCommitRef.current = null;
+                setTextInput(null);
+              }
+            }}
+            style={{ minWidth: 200 }}
+          />
+          <button
+            onClick={commitTextInput}
+            style={{ whiteSpace: "nowrap" }}
+          >
+            Add
+          </button>
+        </div>
       ) : null}
 
       <Drawer open={participantsOpen} title="Participants" onClose={() => setParticipantsOpen(false)}>
@@ -499,9 +663,14 @@ export default function WhiteboardPage() {
       <Drawer open={exportsOpen} title="Exports" onClose={() => setExportsOpen(false)}>
         {canExport ? (
           <div style={{ display: "grid", gap: 10 }}>
-            <button disabled={creatingExport} onClick={() => void createExport()}>
+            <button disabled={creatingExport || sessionStatus !== "ENDED"} onClick={() => void createExport()}>
               {creatingExport ? "Exporting..." : "Export PDF"}
             </button>
+            {sessionStatus !== "ENDED" ? (
+              <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", padding: "6px 8px", borderRadius: 8 }}>
+                Export is available after the session is ended.
+              </div>
+            ) : null}
 
             {exportsLoading ? <div>Loading exports...</div> : null}
 
@@ -519,6 +688,8 @@ export default function WhiteboardPage() {
           <div>Not allowed.</div>
         )}
       </Drawer>
+
+      <RemoteCursorOverlay ref={remoteCursorOverlayRef} />
 
       {toast ? <Toast message={toast.text} tone={toast.tone} onDone={() => setToast(null)} /> : null}
     </div>

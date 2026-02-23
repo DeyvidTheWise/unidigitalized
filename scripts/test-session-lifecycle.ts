@@ -80,6 +80,8 @@ async function createTempUser(role: "TUTOR" | "STUDENT") {
   const password = "Password123!";
   const user = await prisma.user.create({
     data: {
+      firstName: role === "TUTOR" ? "Tutor" : "Student",
+      lastName: "Lifecycle",
       email,
       passwordHash: await hashPassword(password),
       role,

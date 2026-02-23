@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma, UserRole } from "@prisma/client";
-import { authCookieNames, ensureDeviceIdCookie, setAuthCookies } from "@/src/lib/auth/cookies";
-import { computeDeviceFingerprint } from "@/src/lib/auth/device";
+import { setAuthCookies } from "@/src/lib/auth/cookies";
 import { handleAuthError, jsonError } from "@/src/lib/auth/http";
 import { registerUser } from "@/src/lib/auth/service";
 import { checkRateLimit } from "@/src/lib/security/rateLimit";
 import { withRequestLogging } from "@/src/lib/logging/requestLogger";
+import { getOrSetDeviceIdCookie, resolveDeviceId } from "@/src/lib/auth/deviceIdCookie";
 
 function getClientIp(request: NextRequest): string {
   return (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown").split(",")[0].trim();
+}
+
+function isValidName(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[A-Za-z][A-Za-z -]{1,39}$/.test(trimmed);
 }
 
 export const POST = withRequestLogging("auth_register", async function POST(request: NextRequest) {
@@ -24,23 +29,33 @@ export const POST = withRequestLogging("auth_register", async function POST(requ
     }
 
     const body = await request.json();
-    const email = typeof body?.email === "string" ? body.email : "";
+    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const firstName = typeof body?.firstName === "string" ? body.firstName.trim() : "";
+    const lastName = typeof body?.lastName === "string" ? body.lastName.trim() : "";
     const password = typeof body?.password === "string" ? body.password : "";
     const deviceLabel = typeof body?.deviceLabel === "string" ? body.deviceLabel : undefined;
 
-    if (!email || !password || password.length < 8) {
-      return jsonError(401, "INVALID_CREDENTIALS", "Email and password are required.");
+    if (!email || !password || !firstName || !lastName || password.length < 8) {
+      return jsonError(400, "VALIDATION_ERROR", "firstName, lastName, email and password are required.");
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return jsonError(400, "VALIDATION_ERROR", "Invalid email format.");
+    }
+    if (!isValidName(firstName) || !isValidName(lastName)) {
+      return jsonError(400, "VALIDATION_ERROR", "Names must be 2-40 chars, letters/spaces/hyphen only.");
     }
 
-    const fingerprintHash = computeDeviceFingerprint(request);
+    const deviceId = resolveDeviceId(request);
     const requestedRole = body?.role as UserRole | undefined;
 
     const result = await registerUser({
       email,
+      firstName,
+      lastName,
       password,
       role: requestedRole && requestedRole === UserRole.STUDENT ? requestedRole : UserRole.STUDENT,
-      fingerprintHash,
-      request,
+      deviceId,
+      userAgent: request.headers.get("user-agent"),
       deviceLabel,
       requestMeta: {
         ip,
@@ -49,7 +64,7 @@ export const POST = withRequestLogging("auth_register", async function POST(requ
     });
 
     const response = NextResponse.json({ user: result.user });
-    ensureDeviceIdCookie(response, request.cookies.get(authCookieNames.device)?.value);
+    getOrSetDeviceIdCookie(request, response);
     setAuthCookies(response, result.accessToken, result.refreshToken);
     return response;
   } catch (error) {

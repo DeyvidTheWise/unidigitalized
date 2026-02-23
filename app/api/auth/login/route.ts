@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authCookieNames, ensureDeviceIdCookie, setAuthCookies } from "@/src/lib/auth/cookies";
-import { computeDeviceFingerprint } from "@/src/lib/auth/device";
+import { setAuthCookies } from "@/src/lib/auth/cookies";
 import { handleAuthError, jsonError } from "@/src/lib/auth/http";
 import { loginUser } from "@/src/lib/auth/service";
 import { checkRateLimit } from "@/src/lib/security/rateLimit";
 import { withRequestLogging } from "@/src/lib/logging/requestLogger";
+import { getOrSetDeviceIdCookie, resolveDeviceId } from "@/src/lib/auth/deviceIdCookie";
 
 function getClientIp(request: NextRequest): string {
   return (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "unknown").split(",")[0].trim();
@@ -31,12 +31,12 @@ export const POST = withRequestLogging("auth_login", async function POST(request
       return jsonError(401, "INVALID_CREDENTIALS", "Email and password are required.");
     }
 
-    const fingerprintHash = computeDeviceFingerprint(request);
+    const deviceId = resolveDeviceId(request);
     const result = await loginUser({
       email,
       password,
-      fingerprintHash,
-      request,
+      deviceId,
+      userAgent: request.headers.get("user-agent"),
       deviceLabel,
       requestMeta: {
         ip,
@@ -45,7 +45,7 @@ export const POST = withRequestLogging("auth_login", async function POST(request
     });
 
     const response = NextResponse.json({ user: result.user });
-    ensureDeviceIdCookie(response, request.cookies.get(authCookieNames.device)?.value);
+    getOrSetDeviceIdCookie(request, response);
     setAuthCookies(response, result.accessToken, result.refreshToken);
     return response;
   } catch (error) {

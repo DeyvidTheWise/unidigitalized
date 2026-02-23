@@ -75,6 +75,46 @@ export async function requireSessionAccess(user: AuthedUser, sessionId: string) 
   return session;
 }
 
+export async function requireSessionReadAccess(user: AuthedUser, sessionId: string) {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      scheduledStartAt: true,
+      actualStartAt: true,
+      endedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!session) {
+    throw new ApiError(404, "NOT_FOUND", "Session not found.");
+  }
+
+  if (user.role === "ADMIN") {
+    return session;
+  }
+
+  const participant = await prisma.sessionParticipant.findFirst({
+    where: {
+      sessionId,
+      userId: user.id,
+      leftAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (!participant && session.createdByUserId !== user.id) {
+    throw new ApiError(403, "FORBIDDEN", "No access to this session.");
+  }
+
+  return session;
+}
+
 export function assertSessionNotEnded(session: { status: SessionStatus }): void {
   if (session.status === "ENDED") {
     throw new ApiError(409, "SESSION_ENDED", "Session is ended and immutable.");

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost, ApiClientError } from "@/src/lib/client/api";
 import { useMe } from "@/src/lib/client/auth";
-import { Skeleton } from "@/src/components/Skeleton";
-import { Toast } from "@/src/components/Toast";
+import { Skeleton } from "@/src/components/ui/Skeleton";
+import { Toast } from "@/src/components/ui/Toast";
+import { Badge } from "@/src/components/ui/Badge";
 
 type SessionListItem = {
   id: string;
@@ -102,7 +103,19 @@ export default function SessionsPage() {
       </div>
 
       {openCreate ? (
-        <form onSubmit={createSession} style={{ marginBottom: 16, border: "1px solid #d1d5db", borderRadius: 10, padding: 12, display: "grid", gap: 8, maxWidth: 480 }}>
+        <form
+          onSubmit={createSession}
+          style={{
+            marginBottom: 16,
+            border: "1px solid #d1d5db",
+            borderRadius: 10,
+            padding: 12,
+            display: "grid",
+            gap: 8,
+            maxWidth: 480,
+            background: "#fff",
+          }}
+        >
           <input placeholder="Session title" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} required />
           <input type="datetime-local" value={createDate} onChange={(e) => setCreateDate(e.target.value)} required />
           <button disabled={creating}>{creating ? "Creating..." : "Create"}</button>
@@ -126,7 +139,10 @@ export default function SessionsPage() {
               <div style={{ border: "1px solid #d1d5db", borderRadius: 10, background: "#fff", padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <strong>{session.title}</strong>
-                  <span style={{ fontSize: 12 }}>{session.status}</span>
+                  <Badge
+                    text={session.status}
+                    tone={session.status === "ACTIVE" ? "success" : session.status === "ENDED" ? "neutral" : "warning"}
+                  />
                 </div>
                 <div style={{ fontSize: 12, color: "#475569", marginTop: 6 }}>
                   Scheduled: {new Date(session.scheduledStartAt).toLocaleString()}

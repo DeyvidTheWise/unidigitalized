@@ -3,7 +3,7 @@ import type { NextResponse } from "next/server";
 
 const ACCESS_COOKIE = "access_token";
 const REFRESH_COOKIE = "refresh_token";
-const DEVICE_COOKIE = "device_id";
+const DEVICE_COOKIE = "ud_device_id";
 
 function isProd(): boolean {
   return process.env.NODE_ENV === "production";
@@ -22,11 +22,11 @@ function refreshTtlSeconds(): number {
 export function ensureDeviceIdCookie(response: NextResponse, existing?: string): string {
   const deviceId = existing ?? crypto.randomBytes(24).toString("base64url");
   response.cookies.set(DEVICE_COOKIE, deviceId, {
-    httpOnly: false,
+    httpOnly: true,
     sameSite: "lax",
     secure: isProd(),
     path: "/",
-    maxAge: 365 * 24 * 60 * 60,
+    maxAge: 400 * 24 * 60 * 60,
   });
   return deviceId;
 }

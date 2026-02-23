@@ -47,6 +47,8 @@ async function createTempTutor() {
 
   const user = await prisma.user.create({
     data: {
+      firstName: "Export",
+      lastName: "Tutor",
       email,
       passwordHash: await hashPassword(password),
       role: "TUTOR",

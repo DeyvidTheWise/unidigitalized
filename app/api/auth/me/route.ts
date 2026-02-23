@@ -9,6 +9,8 @@ export const GET = withRequestLogging("auth_me", async function GET(request: Nex
     return NextResponse.json({
       user: {
         id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         role: user.role,
       },

@@ -7,12 +7,33 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "react", "react-dom"],
-    "jsx": "preserve",
+    "types": [
+      "node",
+      "react",
+      "react-dom"
+    ],
+    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["*"]
-    }
+      "@/*": [
+        "*"
+      ]
+    },
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
   "include": [
     "prisma/**/*.ts",
@@ -21,6 +42,11 @@
     "app/**/*.ts",
     "app/**/*.tsx",
     "scripts/**/*.ts",
-    "server-ws.ts"
+    "server-ws.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }

@@ -3,24 +3,55 @@ import type { NextRequest } from "next/server";
 import { prisma } from "../prisma";
 import { AuthError } from "./types";
 
-export function computeDeviceFingerprint(request: Pick<NextRequest, "headers" | "cookies">): string {
-  const userAgent = request.headers.get("user-agent") ?? "";
-  const acceptLanguage = request.headers.get("accept-language") ?? "";
-  const stableClientId = request.cookies.get("device_id")?.value ?? "";
+function devicePepper(): string {
+  return process.env.JWT_REFRESH_PEPPER ?? "dev-refresh-pepper-change-me";
+}
 
+export function computeDeviceFingerprintForUser(userId: string, deviceId: string): string {
   return crypto
     .createHash("sha256")
-    .update(`${userAgent}|${acceptLanguage}|${stableClientId}`)
+    .update(`${userId}:${deviceId}:${devicePepper()}`)
     .digest("hex");
 }
 
-export function deriveDeviceLabel(request: Pick<NextRequest, "headers">, explicitLabel?: string): string {
+// Backward-compat helper for local scripts; route handlers should use computeDeviceFingerprintForUser.
+export function computeDeviceFingerprint(request: Pick<NextRequest, "cookies">): string {
+  const deviceId = request.cookies.get("ud_device_id")?.value ?? request.cookies.get("device_id")?.value ?? "";
+  return crypto
+    .createHash("sha256")
+    .update(`legacy:${deviceId}:${devicePepper()}`)
+    .digest("hex");
+}
+
+export function deriveDeviceLabel(userAgent: string | null | undefined, explicitLabel?: string): string {
   if (explicitLabel && explicitLabel.trim().length > 0) {
     return explicitLabel.trim().slice(0, 100);
   }
 
-  const userAgent = request.headers.get("user-agent") ?? "Unknown device";
-  return userAgent.slice(0, 100);
+  const ua = userAgent ?? "";
+  const browser = /Edg\//.test(ua)
+    ? "Edge"
+    : /Chrome\//.test(ua)
+      ? "Chrome"
+      : /Firefox\//.test(ua)
+        ? "Firefox"
+        : /Safari\//.test(ua) && !/Chrome\//.test(ua)
+          ? "Safari"
+          : "Browser";
+
+  const os = /Windows NT/.test(ua)
+    ? "Windows"
+    : /Mac OS X/.test(ua)
+      ? "macOS"
+      : /Android/.test(ua)
+        ? "Android"
+        : /iPhone|iPad|iOS/.test(ua)
+          ? "iOS"
+          : /Linux/.test(ua)
+            ? "Linux"
+            : "Device";
+
+  return `${browser} on ${os}`.slice(0, 100);
 }
 
 export async function upsertDeviceForUser(userId: string, fingerprintHash: string, label?: string) {
@@ -57,7 +88,7 @@ export async function enforceMaxVerifiedDevices(userId: string): Promise<void> {
   }
 }
 
-export async function verifyDevice(userId: string, deviceId: string) {
+export async function verifyDevice(userId: string, deviceId: string, options?: { bypassLimit?: boolean }) {
   const device = await prisma.device.findFirst({
     where: {
       id: deviceId,
@@ -70,7 +101,9 @@ export async function verifyDevice(userId: string, deviceId: string) {
   }
 
   if (!device.verifiedAt || device.revokedAt) {
-    await enforceMaxVerifiedDevices(userId);
+    if (!options?.bypassLimit) {
+      await enforceMaxVerifiedDevices(userId);
+    }
     return prisma.device.update({
       where: { id: deviceId },
       data: {

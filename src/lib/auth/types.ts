@@ -21,6 +21,8 @@ export class AuthError extends Error {
 
 export type PublicUser = {
   id: string;
+  firstName: string;
+  lastName: string;
   email: string;
   role: UserRole;
 };

@@ -31,6 +31,14 @@ export default function LoginPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!email.includes("@")) {
+      setError("Please enter a valid email.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
 
@@ -40,11 +48,9 @@ export default function LoginPage() {
       router.replace("/sessions");
     } catch (err) {
       if (err instanceof ApiClientError) {
-        if (err.code === "DEVICE_LIMIT_REACHED") {
-          setError("This account has reached the max verified device limit.");
-        } else {
-          setError(err.message);
-        }
+        if (err.code === "DEVICE_LIMIT_REACHED") setError("This account has reached the max verified device limit.");
+        else if (err.code === "INVALID_CREDENTIALS") setError("Invalid email or password.");
+        else setError(err.message);
       } else {
         setError("Login failed.");
       }

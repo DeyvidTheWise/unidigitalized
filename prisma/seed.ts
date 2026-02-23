@@ -8,14 +8,30 @@ import {
 
 const prisma = new PrismaClient();
 
+const FIRST_NAMES = [
+  "Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Alexander",
+  "Emma", "Olivia", "Ava", "Sophia", "Isabella", "Mia", "Charlotte", "Amelia", "Harper", "Evelyn",
+];
+
+const LAST_NAMES = [
+  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
+  "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+];
+
+function pickRandom<T>(values: T[]): T {
+  return values[Math.floor(Math.random() * values.length)];
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash("Password123!", 10);
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@test.local" },
-    update: { passwordHash, role: UserRole.ADMIN },
+    update: { passwordHash, role: UserRole.ADMIN, firstName: pickRandom(FIRST_NAMES), lastName: pickRandom(LAST_NAMES) },
     create: {
       email: "admin@test.local",
+      firstName: pickRandom(FIRST_NAMES),
+      lastName: pickRandom(LAST_NAMES),
       passwordHash,
       role: UserRole.ADMIN,
     },
@@ -23,9 +39,11 @@ async function main() {
 
   const tutor = await prisma.user.upsert({
     where: { email: "tutor@test.local" },
-    update: { passwordHash, role: UserRole.TUTOR },
+    update: { passwordHash, role: UserRole.TUTOR, firstName: pickRandom(FIRST_NAMES), lastName: pickRandom(LAST_NAMES) },
     create: {
       email: "tutor@test.local",
+      firstName: pickRandom(FIRST_NAMES),
+      lastName: pickRandom(LAST_NAMES),
       passwordHash,
       role: UserRole.TUTOR,
     },
@@ -33,9 +51,11 @@ async function main() {
 
   const student = await prisma.user.upsert({
     where: { email: "student@test.local" },
-    update: { passwordHash, role: UserRole.STUDENT },
+    update: { passwordHash, role: UserRole.STUDENT, firstName: pickRandom(FIRST_NAMES), lastName: pickRandom(LAST_NAMES) },
     create: {
       email: "student@test.local",
+      firstName: pickRandom(FIRST_NAMES),
+      lastName: pickRandom(LAST_NAMES),
       passwordHash,
       role: UserRole.STUDENT,
     },

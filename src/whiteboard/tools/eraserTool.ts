@@ -10,11 +10,7 @@ export function createEraserTool(): WhiteboardTool {
       const hitId = hitTestTopObjectId(scene, point);
       if (!hitId) return;
 
-      const objectValue = scene.objectsById.get(hitId);
-      if (!objectValue || objectValue.objectType !== "stroke") {
-        return;
-      }
-
+      // Delete whichever top-most object is hit (stroke/shape/text).
       context.submitOp({
         opType: WHITEBOARD_OPS.STROKE_DELETE,
         payload: { id: hitId },

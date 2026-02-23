@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
@@ -16,6 +19,7 @@
     "snapshot:smoke": "ts-node -r tsconfig-paths/register scripts/snapshot-smoke.ts",
     "exports:cleanup": "ts-node -r tsconfig-paths/register scripts/exports-cleanup.ts",
     "export:smoke": "ts-node -r tsconfig-paths/register scripts/export-smoke.ts",
+    "dev:all": "powershell -ExecutionPolicy Bypass -File scripts/dev-all.ps1",
     "backup:db": "bash scripts/backup-db.sh",
     "restore:db": "bash scripts/restore-db.sh"
   },
